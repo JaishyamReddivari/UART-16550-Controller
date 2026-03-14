@@ -19,6 +19,20 @@ The verification environment includes two independent testbenches: a **data-path
 * **Full UVM 1.2 testbench** — Dual-monitor scoreboard, constrained-random sequences, self-checking with TX→RX serial loopback
 * **UVM RAL model** — Dual address maps for DLAB aliasing, register adapter, bus predictor, and RAL-aware driver with read-back verification
 
+### Verification Evolution
+
+This project was built iteratively, with each version adding verification complexity:
+
+**v1 — Directed Smoke Test.** A basic SystemVerilog testbench with hardcoded register writes, a single TX frame, and manual waveform inspection. No self-checking — pass/fail was determined by visually comparing `tx` and `rx` waveforms in the simulator. This validated that the RTL could transmit and receive a byte, but nothing more.
+
+**v2 — SV Class-Based Testbench.** Replaced the monolithic `initial` block with a class-based architecture: a transaction class to encapsulate stimulus, a generator to produce randomized transactions, a driver to convert them into pin-level activity, and a monitor to observe outputs. Introduced basic self-checking through a mailbox-based comparison model. This caught data-path bugs that the directed test missed by exercising random payloads.
+
+**v3 — UVM with Single Monitor.** Migrated to the UVM framework with `uvm_sequence`, `uvm_driver`, and `uvm_sequencer`. Used a single monitor on the TX bus side to capture expected data. The scoreboard compared expected values against a simple model but could not verify the serial output independently — it trusted that if the bus accepted the write, the frame would be correct.
+
+**v4 — UVM with Dual Monitors.** Added a second monitor (`uart_rx_monitor`) that independently deserializes frames from the serial `rx` line using 16× oversampling with mid-bit sampling. The scoreboard now compares what the driver wrote on the bus against what actually appeared on the wire, creating true end-to-end verification. Scaled to 500 constrained-random frames with paced writes to prevent FIFO overflow.
+
+**v5 — UVM Register Abstraction Layer (current).** Added a complete RAL model with dual address maps to handle DLAB aliasing, a register adapter, a bus predictor, a dedicated register monitor, and a RAL-aware driver with proper read-back timing. This shifted verification from "does data flow correctly" to "are the registers architecturally correct" — validating address decoding, read-back values, volatile status registers, and alias routing through the DLAB mechanism.
+
 ## Architecture
 
 ### Block Diagram
@@ -410,12 +424,12 @@ Both address maps are connected to the same sequencer and adapter. The register 
 ### RAL Flow (`uart_ral_test`)
 
 ```
-┌──────────────┐    ┌──────────────┐    ┌───────────────┐    ┌─────────────┐
-│  RAL         │───►│  RAL Driver  │───►│     DUT       │    │  Reg Monitor│
-│  Sequence    │    │  (captures   │    │  (register    │    │  (observes  │
-│  (dual-map   │    │   dout on    │    │   file +      │    │   all r/w)  │
-│   reg ops)   │    │   reads)     │    │   datapaths)  │    └─────┬───────┘
-└──────────────┘    └──────────────┘    └───────────────┘          │
+┌──────────────┐    ┌──────────────┐    ┌───────────────┐    ┌──────────────┐
+│  RAL         │───►│  RAL Driver  │───►│     DUT       │    │  Reg Monitor │
+│  Sequence    │    │  (captures   │    │  (register    │    │  (observes   │
+│  (dual-map   │    │   dout on    │    │   file +      │    │   all r/w)   │
+│   reg ops)   │    │   reads)     │    │   datapaths)  │    └──────┬───────┘
+└──────────────┘    └──────────────┘    └───────────────┘           │
                                                                bus_in.write()
        ┌──────────────────┐                                        │
        │  uart_reg_block  │◄───────────────────────────────────────┘
