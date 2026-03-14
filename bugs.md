@@ -38,4 +38,12 @@
 | 29 | `uart_rx_monitor` | Bit timing assumed 16 clocks/bit regardless of divisor | Parameterized with `BIT_CLKS = 16 × (DLL+1)` |
 | 30 | `uart_tx_monitor` | Captured DLL config writes (addr=0 during DLAB=1) as TX data | Added `config_done` flag triggered by FCR write |
 
+### RAL Bugs
+
+| # | Component | Bug | Fix |
+|---|-----------|-----|-----|
+| 31 | `uart_ral_test` | `UVM_FATAL [INVTST]` — test class not found by factory at `run_test()` | RAL files were compiled as separate files but never imported into the `tb_top` compilation unit. Added `uart_ral_includes.sv` with correct dependency-ordered `include` and `import` statements, placed before `tb_top` in the testbench file |
+| 32 | `uart_driver` | All register read-backs returned `0x00` — driver asserted `rd` but never sampled `vif.dout` | Created `uart_ral_driver` (extends `uart_driver`) that waits 2 clock cycles after `rd` assertion to account for the RTL's temp-register pipeline (`lcr_temp`, `lsr_temp`, `scr_temp`), then captures `vif.dout` with a `#1` delta delay for NBA settlement. Integrated via factory override in `uart_ral_env` |
+| 33 | `uart_reg_adapter` | `bus2reg` always returned `txn.wdata` regardless of read/write — RAL mirror never received actual read data | Added read/write distinction: writes return `txn.wdata`, reads return `txn.data` (populated by the driver from `vif.dout`) |
+
 ---
